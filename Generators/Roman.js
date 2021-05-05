@@ -3,6 +3,7 @@ Solve=z=>{y='';for(x in a)while(z>=a[x])y+=x,z-=a[x];return y;}
 
 
 function Generate(Number) {
+    Number=Math.floor(Number);
     return {input:""+Number,output:Solve(Number)};
 }
 
