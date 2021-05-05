@@ -32,6 +32,8 @@ function Interpreter(File) {
             return 'node ';
         case 'py':
             return 'python ';
+	case 'lisp':
+	    return 'clisp ';
         default:
             return '';
     }
@@ -61,6 +63,7 @@ async function Prepare() {
     console.log('Compiling Entries...');
     await Promise.all((await RunCommand('cd Entries && ls -l')).split('\n').slice(1,-1).map(Line=>Compile(Line.split(' ').slice(-1)[0])));
 }
+
 async function Test(Generator,TestNum,MinDifficulty,MaxDifficulty) {
     overwriteConsole('Generating Tests... (0/'+TestNum+')');
     let Tests=[];
@@ -71,7 +74,6 @@ async function Test(Generator,TestNum,MinDifficulty,MaxDifficulty) {
         overwriteConsole('Generating Tests... ('+(i+1)+'/'+TestNum+')');
     console.log('');
 
-    var Spawned=0,Completed=0,Promises=[];
     let Entries=(await RunCommand('cd Entries && ls -l')).split('\n').slice(1,-1).map(Line=>{
         let Entry=Line.split(' ').slice(-1)[0];
         return {
@@ -80,27 +82,30 @@ async function Test(Generator,TestNum,MinDifficulty,MaxDifficulty) {
         }
     });
 
-    overwriteConsole('Spawning Entries... (0/'+Entries.length*Tests.length+')');
+    let Promises=[];
+    let Completed=0;
+    let EntriesCompleted=0;
     for(let Entry of Entries) {
-        Entry.tests=[];
-        for(let Test of Tests) {
-            Promises.push(RunCommand(Entry.interpreter+' Entries/'+Entry.file+' "'+Test.input.replace(/\n/g,'" "')+'" <<< \''+Test.input+'\'').then(Result=>{
-                Entry.tests.push({
-                    input:Test.input,
-                    expected:Test.output,
-                    output:Result
-                });
-                overwriteConsole('Waiting for Entries... ('+(++Completed)+'/'+Entries.length*Tests.length+')');
-                if(Completed==Entries.length*Tests.length)
-                    File.writeFileSync('Output.json',JSON.stringify(Entries,null,2)),
-                    console.log('');
-            }));
-            overwriteConsole('Spawning Entries... ('+(++Spawned)+'/'+Entries.length*Tests.length+')');
-        }
+        Promises.push(new Promise(Resolve=>{
+            let Spawner=Child.fork('Spawner.js');
+            Spawner.on('message',Message=>{
+                if(Message=='ready')
+                    Spawner.send({Entry,Tests});
+                else if(Message.Completed) {
+                    if(Message.Completed<Tests.length)
+                        Completed+=11;
+                    else
+                        Completed+=Tests.length%11;
+                    overwriteConsole('Testing... ('+Completed+'/'+(Entries.length*Tests.length)+')');
+                }
+                else
+                    Resolve(Message);
+            })
+        }));
     }
-    console.log('');
-    overwriteConsole('Waiting for Entries... (0/'+Entries.length*Tests.length+')');
-    await Promise.all(Promises);
+
+    let Result=await Promise.all(Promises);
+    File.writeFileSync('Output.json',Buffer.from(JSON.stringify(Result,null,2)));
 }
 function Output() {
     var Data=JSON.parse(File.readFileSync('Output.json').toString());
